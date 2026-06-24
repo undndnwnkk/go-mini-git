@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/undndnwnkk/go-mini-git/internal/service"
 	"os"
 )
 
@@ -27,6 +28,16 @@ func main() {
 		}
 
 		fmt.Println(".minigit folder created")
+	case "scan":
+		if len(args) < 2 {
+			fmt.Println("not enough arguments")
+			return
+		}
+
+		err := service.Scan(args[1])
+		if err != nil {
+			fmt.Errorf("scan: %w", err)
+		}
 
 	}
 }
