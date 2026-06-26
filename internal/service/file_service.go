@@ -135,8 +135,7 @@ func SaveSnapshot(snapshot model.Snapshot, dir string) error {
 		return fmt.Errorf("json encoding: %w", err)
 	}
 
-	now := time.Now()
-	fileName := now.Format(TimeFormat) + ".json"
+	fileName := snapshot.ID + ".json"
 	fullPath := filepath.Join(dir, fileName)
 
 	err = os.WriteFile(fullPath, jsonData, 0644)
