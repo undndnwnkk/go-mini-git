@@ -50,7 +50,7 @@ func main() {
 			return
 		}
 
-		err = service.SaveSnapshot(data, args[1])
+		err = service.SaveSnapshot(data, ".minigit/snapshots")
 		if err != nil {
 			fmt.Printf("error while saving snapshot: %v\n", err)
 			return

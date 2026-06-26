@@ -66,6 +66,10 @@ func CollectFiles(root string) ([]model.FileEntry, error) {
 			return fmt.Errorf("walk %s: %w", path, err)
 		}
 
+		if d.IsDir() {
+			return nil
+		}
+
 		relPath, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
@@ -79,13 +83,12 @@ func CollectFiles(root string) ([]model.FileEntry, error) {
 		size := info.Size()
 		modTime := info.ModTime()
 
-		// filePath := filepath.Join(path, d.Name())
-		// hash, err := HashFile(filePath)
+		hash, err := HashFile(path)
 		if err != nil {
 			return fmt.Errorf("error while hashing file: %w", err)
 		}
 
-		res = append(res, model.FileEntry{Path: relPath, Size: size, ModTime: modTime})
+		res = append(res, model.FileEntry{Path: relPath, Size: size, ModTime: modTime, Hash: hash})
 
 		return nil
 	})
