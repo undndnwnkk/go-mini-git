@@ -4,26 +4,25 @@ import (
 	"fmt"
 	"github.com/undndnwnkk/go-mini-git/internal/service"
 	"os"
+	"path/filepath"
 )
 
 func main() {
 	args := os.Args[1:]
+	if len(args) == 0 {
+		fmt.Printf("not enough arguments")
+		return
+	}
 
 	switch args[0] {
 	case "init":
-		err := os.MkdirAll(".minigit/objects", 0755)
-		if err != nil {
-			if os.IsExist(err) {
-				fmt.Println(".minigit already initialized")
-			} else {
-				fmt.Printf("unknown error: %v", err)
-				return
-			}
+		if err := os.MkdirAll(filepath.Join(".minigit", "objects"), 0755); err != nil {
+			fmt.Printf("create objects dir: %v\n", err)
+			return
 		}
 
-		err = os.Mkdir(".minigit/snapshots", 0755)
-		if err != nil && !os.IsExist(err) {
-			fmt.Printf("unknown error: %v", err)
+		if err := os.MkdirAll(filepath.Join(".minigit", "snapshots"), 0755); err != nil {
+			fmt.Printf("create snapshots dir: %v\n", err)
 			return
 		}
 
@@ -36,7 +35,8 @@ func main() {
 
 		err := service.Scan(args[1])
 		if err != nil {
-			fmt.Errorf("scan: %w", err)
+			fmt.Printf("scan: %v\n", err)
+			return
 		}
 
 	}

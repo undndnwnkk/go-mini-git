@@ -35,11 +35,10 @@ func ValidateRoot(root string) error {
 
 func HashFile(path string) (string, error) {
 	file, err := os.Open(path)
-	defer file.Close()
-
 	if err != nil {
 		return "", err
 	}
+	defer file.Close()
 
 	hasher := sha256.New()
 	_, err = io.Copy(hasher, file)
@@ -53,9 +52,13 @@ func HashFile(path string) (string, error) {
 }
 
 func Scan(path string) error {
+	if err := ValidateRoot(path); err != nil {
+		return fmt.Errorf("validate root: %w", err)
+	}
+
 	err := filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return ErrHaveNotAccess
+			return fmt.Errorf("walk %s: %w", path, err)
 		}
 
 		info, err := d.Info()
@@ -63,13 +66,15 @@ func Scan(path string) error {
 			return err
 		}
 
-		name := info.Name()
+		root, _ := os.Executable()
+		relPath, err := filepath.Rel(root, path)
 		size := info.Size()
 
 		if d.IsDir() {
-			fmt.Printf("dir: %s, size: %d bytes\n", name, size)
+			return nil
+			// fmt.Printf("dir: %s, size: %d bytes\n", relPath, size)
 		} else {
-			fmt.Printf("file: %s, size: %d bytes\n", name, size)
+			fmt.Printf("file: %s, size: %d bytes\n", relPath, size)
 		}
 		return nil
 	})
