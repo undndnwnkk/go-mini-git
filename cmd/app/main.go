@@ -38,6 +38,25 @@ func main() {
 			fmt.Printf("scan: %v\n", err)
 			return
 		}
+	case "snapshot":
+		if len(args) < 2 {
+			fmt.Println("not enough arguments")
+			return
+		}
+
+		data, err := service.BuildSnapshot(args[1])
+		if err != nil {
+			fmt.Printf("error while building snapshot: %v\n", err)
+			return
+		}
+
+		err = service.SaveSnapshot(data, args[1])
+		if err != nil {
+			fmt.Printf("error while saving snapshot: %v\n", err)
+			return
+		}
+
+		fmt.Println("snapshot saved succesfully!")
 
 	}
 }

@@ -1,10 +1,14 @@
 package model
 
+import (
+	"time"
+)
+
 type FileEntry struct {
-	Path    string `json:"path"`
-	Size    int64  `json:"size"`
-	Hash    string `json:"hash"`
-	ModTime string `json:"mod_time"`
+	Path    string    `json:"path"`
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time"`
+	Hash    string    `json:"hash"`
 }
 
 type Snapshot struct {
