@@ -10,7 +10,7 @@ import (
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		fmt.Printf("not enough arguments")
+		fmt.Println("not enough arguments")
 		return
 	}
 

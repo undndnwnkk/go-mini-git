@@ -51,12 +51,12 @@ func HashFile(path string) (string, error) {
 
 }
 
-func Scan(path string) error {
-	if err := ValidateRoot(path); err != nil {
+func Scan(root string) error {
+	if err := ValidateRoot(root); err != nil {
 		return fmt.Errorf("validate root: %w", err)
 	}
 
-	err := filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk %s: %w", path, err)
 		}
@@ -66,8 +66,10 @@ func Scan(path string) error {
 			return err
 		}
 
-		root, _ := os.Executable()
 		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
 		size := info.Size()
 
 		if d.IsDir() {
@@ -87,8 +89,7 @@ func Scan(path string) error {
 }
 
 var (
-	ErrEmptyPath     = errors.New("filepath is empty")
-	ErrNotExist      = errors.New("not exist")
-	ErrNotDir        = errors.New("not directory")
-	ErrHaveNotAccess = errors.New("don't have access")
+	ErrEmptyPath = errors.New("filepath is empty")
+	ErrNotExist  = errors.New("not exist")
+	ErrNotDir    = errors.New("not directory")
 )
