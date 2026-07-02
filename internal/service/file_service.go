@@ -182,7 +182,12 @@ func SaveObject(sourcePath, objectsDir, hash string) error {
 		return nil
 	}
 
-	folderPath := filepath.Join(".minigit", "objects", hash[0:2])
+	objectPath, err := ObjectPath(objectsDir, hash)
+	if err != nil {
+		return err
+	}
+
+	folderPath := filepath.Dir(objectPath)
 	err = os.MkdirAll(folderPath, 0755)
 	if err != nil {
 		return err
