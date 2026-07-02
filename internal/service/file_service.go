@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -224,6 +225,62 @@ func SaveObjects(root string, files []model.FileEntry, objectsDir string) error 
 	}
 
 	return nil
+}
+
+func LoadSnapshot(path string) (model.Snapshot, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return model.Snapshot{}, fmt.Errorf("read snapshot file: %w", err)
+	}
+	defer file.Close()
+
+	var snapshot model.Snapshot
+	jsonDecoder := json.NewDecoder(file)
+	if err := jsonDecoder.Decode(&snapshot); err != nil {
+		return model.Snapshot{}, fmt.Errorf("decode snapshot file: %w", err)
+	}
+
+	return snapshot, nil
+}
+
+func ListSnapshots(snapshotsDir string) ([]model.Snapshot, error) {
+	res := make([]model.Snapshot, 0)
+	if err := ValidateRoot(snapshotsDir); err != nil {
+		return nil, fmt.Errorf("invalid snapshot directory: %w", err)
+	}
+
+	err := filepath.WalkDir(snapshotsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		if filepath.Ext(path) != ".json" {
+			return nil
+		}
+
+		currentSnapshot, err := LoadSnapshot(path)
+		if err != nil {
+			return err
+		}
+
+		res = append(res, currentSnapshot)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	slices.SortFunc(res, func(a, b model.Snapshot) int {
+		t1, _ := time.Parse(TimeFormat, a.CreatedAt)
+		t2, _ := time.Parse(TimeFormat, b.CreatedAt)
+		return t2.Compare(t1)
+	})
+	return res, nil
 }
 
 var (

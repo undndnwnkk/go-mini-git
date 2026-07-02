@@ -63,6 +63,20 @@ func main() {
 		}
 
 		fmt.Println("snapshot saved succesfully!")
+	case "list":
+		data, err := service.ListSnapshots(".minigit/snapshots")
+		if err != nil {
+			fmt.Printf("error while list snapshots: %v\n", err)
+			return
+		}
 
+		if len(data) == 0 {
+			fmt.Printf("no snapshots found")
+			return
+		}
+
+		for _, snap := range data {
+			fmt.Printf("%s    created_at: %s    files: %d    root: %s\n", snap.ID, snap.CreatedAt, len(snap.Files), snap.RootPath)
+		}
 	}
 }
