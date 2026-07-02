@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -194,8 +195,7 @@ func SaveObject(sourcePath, objectsDir, hash string) error {
 		return err
 	}
 
-	filePath := filepath.Join(folderPath, hash)
-	f, err := os.Create(filePath)
+	f, err := os.Create(objectPath)
 	if err != nil {
 		return fmt.Errorf("error while creating file in objects: %w", err)
 	}
@@ -243,6 +243,24 @@ func LoadSnapshot(path string) (model.Snapshot, error) {
 	return snapshot, nil
 }
 
+func LoadSnapshotByID(snapshotsDir, id string) (model.Snapshot, error) {
+	if err := ValidateRoot(snapshotsDir); err != nil {
+		return model.Snapshot{}, fmt.Errorf("invalid snapshots dir: %w", err)
+	}
+
+	if id == "" {
+		return model.Snapshot{}, fmt.Errorf("empty id")
+	}
+
+	path := filepath.Join(snapshotsDir, id) + ".json"
+	data, err := LoadSnapshot(path)
+	if err != nil {
+		return model.Snapshot{}, err
+	}
+
+	return data, nil
+}
+
 func ListSnapshots(snapshotsDir string) ([]model.Snapshot, error) {
 	res := make([]model.Snapshot, 0)
 	if err := ValidateRoot(snapshotsDir); err != nil {
@@ -276,11 +294,67 @@ func ListSnapshots(snapshotsDir string) ([]model.Snapshot, error) {
 	}
 
 	slices.SortFunc(res, func(a, b model.Snapshot) int {
-		t1, _ := time.Parse(TimeFormat, a.CreatedAt)
-		t2, _ := time.Parse(TimeFormat, b.CreatedAt)
-		return t2.Compare(t1)
+		t1 := a.CreatedAt
+		t2 := b.CreatedAt
+		return cmp.Compare(t2, t1)
 	})
 	return res, nil
+}
+
+func IndexFiles(files []model.FileEntry) map[string]model.FileEntry {
+	res := make(map[string]model.FileEntry)
+
+	for _, file := range files {
+		res[file.Path] = file
+	}
+
+	return res
+}
+
+func DiffSnapshots(oldSnap, newSnap model.Snapshot) []model.FileChange {
+	res := make([]model.FileChange, 0)
+
+	oldIndex := IndexFiles(oldSnap.Files)
+	newIndex := IndexFiles(newSnap.Files)
+
+	for _, file := range newSnap.Files {
+		v, ok := oldIndex[file.Path]
+		if !ok {
+			res = append(res, model.FileChange{
+				Path:    file.Path,
+				Status:  model.StatusAdded,
+				OldHash: "",
+				NewHash: file.Hash,
+			})
+		} else {
+			if v.Hash != file.Hash {
+				res = append(res, model.FileChange{
+					Path:    file.Path,
+					Status:  model.StatusModified,
+					OldHash: v.Hash,
+					NewHash: file.Hash,
+				})
+			}
+		}
+	}
+
+	for _, file := range oldSnap.Files {
+		_, ok := newIndex[file.Path]
+		if !ok {
+			res = append(res, model.FileChange{
+				Path:    file.Path,
+				Status:  model.StatusDeleted,
+				OldHash: file.Hash,
+				NewHash: "",
+			})
+		}
+	}
+
+	slices.SortFunc(res, func(a, b model.FileChange) int {
+		return cmp.Compare(a.Path, b.Path)
+	})
+
+	return res
 }
 
 var (

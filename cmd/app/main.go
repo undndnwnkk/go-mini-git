@@ -78,5 +78,34 @@ func main() {
 		for _, snap := range data {
 			fmt.Printf("%s    created_at: %s    files: %d    root: %s\n", snap.ID, snap.CreatedAt, len(snap.Files), snap.RootPath)
 		}
+	case "diff":
+		if len(args) < 3 {
+			fmt.Println("not enough arguments")
+			return
+		}
+
+		oldSnap, err := service.LoadSnapshotByID(".minigit/snapshots", args[1])
+		if err != nil {
+			fmt.Printf("error while loading snapshot by id: %v\n", err)
+			return
+		}
+
+		newSnap, err := service.LoadSnapshotByID(".minigit/snapshots", args[2])
+		if err != nil {
+			fmt.Printf("error while loading snapshot by id: %v\n", err)
+			return
+		}
+
+		changes := service.DiffSnapshots(oldSnap, newSnap)
+		if len(changes) == 0 {
+			fmt.Println("no changes")
+			return
+		}
+
+		for _, change := range changes {
+			fmt.Printf("%s    %s\n", change.Status, change.Path)
+		}
+	default:
+		fmt.Println("unkown command: " + args[0])
 	}
 }
