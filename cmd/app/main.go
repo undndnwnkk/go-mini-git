@@ -105,7 +105,24 @@ func main() {
 		for _, change := range changes {
 			fmt.Printf("%s    %s\n", change.Status, change.Path)
 		}
+
+	case "restore":
+		if len(args) < 3 {
+			fmt.Println("not enough arguments")
+			return
+		}
+
+		snapshotID := args[1]
+		targetDir := args[2]
+
+		err := service.RestoreSnapshotByID(snapshotID, targetDir, ".minigit/snapshots", ".minigit/objects")
+		if err != nil {
+			fmt.Printf("error while restoring snapshot by id: %v\n", err)
+			return
+		}
+
+		fmt.Println("snapshot restored successfully")
 	default:
-		fmt.Println("unkown command: " + args[0])
+		fmt.Println("unknown command: " + args[0])
 	}
 }

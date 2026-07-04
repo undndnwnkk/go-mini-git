@@ -11,6 +11,8 @@ type FileEntry struct {
 	Hash    string    `json:"hash"`
 }
 
+type ChangeStatus string
+
 type Snapshot struct {
 	ID        string      `json:"id"`
 	RootPath  string      `json:"root_path"`
@@ -19,10 +21,10 @@ type Snapshot struct {
 }
 
 type FileChange struct {
-	Path    string `json:"path"`
-	Status  string `json:"change_status"`
-	OldHash string `json:"old_hash"`
-	NewHash string `json:"new_hash"`
+	Path    string       `json:"path"`
+	Status  ChangeStatus `json:"change_status"`
+	OldHash string       `json:"old_hash"`
+	NewHash string       `json:"new_hash"`
 }
 
 const (
