@@ -2,6 +2,7 @@ package service
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
@@ -15,6 +16,21 @@ import (
 
 func BuildSnapshot(root string) (model.Snapshot, error) {
 	files, err := CollectFiles(root)
+	if err != nil {
+		return model.Snapshot{}, err
+	}
+
+	now := time.Now()
+
+	snapshot := model.Snapshot{ID: uuid.NewString(), RootPath: root, CreatedAt: now.Format(TimeFormat), Files: files}
+	return snapshot, nil
+}
+
+func BuildSnapshotWithContext(ctx context.Context, root string) (model.Snapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return model.Snapshot{}, err
+	}
+	files, err := CollectFilesWithContext(ctx, root)
 	if err != nil {
 		return model.Snapshot{}, err
 	}

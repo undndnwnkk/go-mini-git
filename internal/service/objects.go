@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/undndnwnkk/go-mini-git/internal/model"
@@ -82,6 +83,27 @@ func SaveObjects(root string, files []model.FileEntry, objectsDir string) error 
 		err := SaveObject(sourcePath, objectsDir, file.Hash)
 		if err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+func SaveObjectsWithContext(ctx context.Context, root string, files []model.FileEntry, objectsDir string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			sourcePath := filepath.Join(root, file.Path)
+			err := SaveObject(sourcePath, objectsDir, file.Hash)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

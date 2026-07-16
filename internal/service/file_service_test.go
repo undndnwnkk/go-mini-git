@@ -1,12 +1,13 @@
 package service
 
 import (
+	"context"
+	"errors"
+	"github.com/undndnwnkk/go-mini-git/internal/model"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
-
-	"github.com/undndnwnkk/go-mini-git/internal/model"
 )
 
 func TestObjectPath(t *testing.T) {
@@ -651,6 +652,56 @@ func TestListSnapshots(t *testing.T) {
 		_, err := ListSnapshots(snapshotsDir)
 		if err == nil {
 			t.Fatal("expected error, got nil")
+		}
+	})
+}
+
+func TestCollectFilesWithContextCanceled(t *testing.T) {
+	t.Run("context check test", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := CollectFilesWithContext(ctx, "test")
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error must be context.Cancelled")
+		}
+	})
+}
+
+func TestBuildSnapshotWithContextCanceled(t *testing.T) {
+	t.Run("test canceled context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := BuildSnapshotWithContext(ctx, "test")
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error must be context.Cancelled")
+		}
+	})
+}
+
+func TestSaveObjectsWithContextCanceled(t *testing.T) {
+	t.Run("test canceled context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		fake := make([]model.FileEntry, 0)
+
+		err := SaveObjectsWithContext(ctx, "test", fake, "test")
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error must be context.Cancelled")
+		}
+	})
+}
+
+func TestRestoreSnapshotWithContextCanceled(t *testing.T) {
+	t.Run("test canceled context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := RestoreSnapshotWithContext(ctx, model.Snapshot{}, "test", "test")
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error must be context.Cancelled")
 		}
 	})
 }

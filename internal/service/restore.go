@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"github.com/undndnwnkk/go-mini-git/internal/model"
 	"io"
@@ -45,6 +46,32 @@ func RestoreSnapshot(snapshot model.Snapshot, targetDir, objectsDir string) erro
 		err = RestoreFile(objectPath, targetPath)
 		if err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+func RestoreSnapshotWithContext(ctx context.Context, snapshot model.Snapshot, targetDir, objectsDir string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	for _, file := range snapshot.Files {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			objectPath, err := ObjectPath(objectsDir, file.Hash)
+			if err != nil {
+				return err
+			}
+
+			targetPath := filepath.Join(targetDir, file.Path)
+			err = RestoreFile(objectPath, targetPath)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
