@@ -1,75 +1,112 @@
 package service
 
 import (
-	"errors"
-	"fmt"
-	"github.com/brianvoe/gofakeit/v7"
-	"github.com/undndnwnkk/go-mini-git/internal/model"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/undndnwnkk/go-mini-git/internal/model"
 )
 
 func TestObjectPath(t *testing.T) {
 	tests := []struct {
 		name       string
+		objectsDir string
 		hash       string
-		wantString string
-		wantErr    error
+		want       string
+		wantErr    bool
 	}{
-		{"valid hash", "abcdefgh", filepath.Join(".minigit", "objects", "ab", "abcdefgh"), nil},
-		{"small hash", "a", "", fmt.Errorf("hash must be more than 2 symbols, current: %s", "a")},
+		{
+			name:       "valid hash",
+			objectsDir: "objects",
+			hash:       "abcdef123456",
+			want:       filepath.Join("objects", "ab", "abcdef123456"),
+			wantErr:    false,
+		},
+		{
+			name:       "short hash",
+			objectsDir: "objects",
+			hash:       "a",
+			want:       "",
+			wantErr:    true,
+		},
+		{
+			name:       "empty hash",
+			objectsDir: "objects",
+			hash:       "",
+			want:       "",
+			wantErr:    true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ObjectPath(".minigit/objects", tt.hash)
-			if err != nil {
-				if errors.Is(err, tt.wantErr) {
-					t.Errorf("expected error=%v, got error=%v", tt.wantErr, err)
+			got, err := ObjectPath(tt.objectsDir, tt.hash)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
 				}
+				return
 			}
 
-			if got != tt.wantString {
-				t.Errorf("expected result=%s, got=%s", tt.wantString, got)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if got != tt.want {
+				t.Errorf("expected=%q, got=%q", tt.want, got)
 			}
 		})
 	}
 }
 
 func TestIndexFiles(t *testing.T) {
-	var inputFiles []model.FileEntry
-	gofakeit.Slice(&inputFiles)
-	inputMap := make(map[string]model.FileEntry, 5)
-	for _, v := range inputFiles {
-		inputMap[v.Path] = v
-	}
-
-	emptySlice := make([]model.FileEntry, 0)
-	emptyMap := make(map[string]model.FileEntry, 0)
-
 	tests := []struct {
 		name  string
 		files []model.FileEntry
 		want  map[string]model.FileEntry
 	}{
-		{"few files", inputFiles, inputMap},
-		{"empty map", emptySlice, emptyMap},
+		{
+			name:  "empty files",
+			files: []model.FileEntry{},
+			want:  map[string]model.FileEntry{},
+		},
+		{
+			name: "indexes files by path",
+			files: []model.FileEntry{
+				{Path: "a.txt", Hash: "hash-a"},
+				{Path: "internal/b.txt", Hash: "hash-b"},
+			},
+			want: map[string]model.FileEntry{
+				"a.txt":          {Path: "a.txt", Hash: "hash-a"},
+				"internal/b.txt": {Path: "internal/b.txt", Hash: "hash-b"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := IndexFiles(tt.files)
-			if !maps.Equal(got, tt.want) {
-				t.Errorf("expected=%v, got=%v", tt.want, got)
+
+			if len(got) != len(tt.want) {
+				t.Fatalf("map size mismatch: expected=%d, got=%d", len(tt.want), len(got))
+			}
+
+			for path, wantEntry := range tt.want {
+				gotEntry, ok := got[path]
+				if !ok {
+					t.Fatalf("expected path %q to exist in index", path)
+				}
+
+				if gotEntry != wantEntry {
+					t.Errorf("entry mismatch for path %q: expected=%v, got=%v", path, wantEntry, gotEntry)
+				}
 			}
 		})
 	}
 }
-
-// TODO
 
 func TestDiffSnapshots(t *testing.T) {
 	entry := func(path, hash string) model.FileEntry {
@@ -343,6 +380,58 @@ func TestRestoreFile(t *testing.T) {
 	})
 }
 
+func TestRestoreSnapshot(t *testing.T) {
+	t.Run("restores all files from snapshot", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		objectsDir := filepath.Join(tmp, "objects")
+		targetDir := filepath.Join(tmp, "target")
+
+		writeObject(t, objectsDir, "aa111", []byte("content-a"))
+		writeObject(t, objectsDir, "bb222", []byte("content-b"))
+
+		snapshot := model.Snapshot{
+			Files: []model.FileEntry{
+				{Path: "a.txt", Hash: "aa111"},
+				{Path: filepath.Join("internal", "b.txt"), Hash: "bb222"},
+			},
+		}
+
+		err := RestoreSnapshot(snapshot, targetDir, objectsDir)
+		if err != nil {
+			t.Fatalf("RestoreSnapshot returned error: %v", err)
+		}
+
+		gotA := mustReadFile(t, filepath.Join(targetDir, "a.txt"))
+		if string(gotA) != "content-a" {
+			t.Errorf("a.txt content mismatch: want=%q got=%q", "content-a", string(gotA))
+		}
+
+		gotB := mustReadFile(t, filepath.Join(targetDir, "internal", "b.txt"))
+		if string(gotB) != "content-b" {
+			t.Errorf("internal/b.txt content mismatch: want=%q got=%q", "content-b", string(gotB))
+		}
+	})
+
+	t.Run("returns error if object is missing", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		objectsDir := filepath.Join(tmp, "objects")
+		targetDir := filepath.Join(tmp, "target")
+
+		snapshot := model.Snapshot{
+			Files: []model.FileEntry{
+				{Path: "missing.txt", Hash: "cc333"},
+			},
+		}
+
+		err := RestoreSnapshot(snapshot, targetDir, objectsDir)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+}
+
 func TestLoadSnapshot(t *testing.T) {
 	t.Run("loads valid snapshot json", func(t *testing.T) {
 		tmp := t.TempDir()
@@ -422,4 +511,183 @@ func TestLoadSnapshot(t *testing.T) {
 			t.Fatal("expected error, got nil")
 		}
 	})
+}
+
+func TestLoadSnapshotByID(t *testing.T) {
+	t.Run("loads snapshot by id", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		snapshotsDir := filepath.Join(tmp, "snapshots")
+		if err := os.MkdirAll(snapshotsDir, 0755); err != nil {
+			t.Fatalf("create snapshots dir: %v", err)
+		}
+
+		snapshotPath := filepath.Join(snapshotsDir, "snap-1.json")
+		jsonData := []byte(`{
+			"id": "snap-1",
+			"root_path": "./testdata",
+			"created_at": "2026-07-04T10-00-00",
+			"files": []
+		}`)
+
+		if err := os.WriteFile(snapshotPath, jsonData, 0644); err != nil {
+			t.Fatalf("write snapshot json: %v", err)
+		}
+
+		got, err := LoadSnapshotByID(snapshotsDir, "snap-1")
+		if err != nil {
+			t.Fatalf("LoadSnapshotByID returned error: %v", err)
+		}
+
+		if got.ID != "snap-1" {
+			t.Errorf("ID mismatch: want=%q got=%q", "snap-1", got.ID)
+		}
+	})
+
+	t.Run("returns error for empty id", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		snapshotsDir := filepath.Join(tmp, "snapshots")
+		if err := os.MkdirAll(snapshotsDir, 0755); err != nil {
+			t.Fatalf("create snapshots dir: %v", err)
+		}
+
+		_, err := LoadSnapshotByID(snapshotsDir, "")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+
+	t.Run("returns error for missing snapshot", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		snapshotsDir := filepath.Join(tmp, "snapshots")
+		if err := os.MkdirAll(snapshotsDir, 0755); err != nil {
+			t.Fatalf("create snapshots dir: %v", err)
+		}
+
+		_, err := LoadSnapshotByID(snapshotsDir, "missing")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+}
+
+func TestListSnapshots(t *testing.T) {
+	t.Run("lists snapshots sorted by created_at desc", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		snapshotsDir := filepath.Join(tmp, "snapshots")
+		if err := os.MkdirAll(snapshotsDir, 0755); err != nil {
+			t.Fatalf("create snapshots dir: %v", err)
+		}
+
+		writeSnapshotJSON(t, snapshotsDir, "old.json", `{
+			"id": "old",
+			"root_path": "./testdata",
+			"created_at": "2026-07-04T10-00-00",
+			"files": []
+		}`)
+
+		writeSnapshotJSON(t, snapshotsDir, "new.json", `{
+			"id": "new",
+			"root_path": "./testdata",
+			"created_at": "2026-07-04T11-00-00",
+			"files": []
+		}`)
+
+		if err := os.WriteFile(filepath.Join(snapshotsDir, "ignore.txt"), []byte("ignore me"), 0644); err != nil {
+			t.Fatalf("write non-json file: %v", err)
+		}
+
+		got, err := ListSnapshots(snapshotsDir)
+		if err != nil {
+			t.Fatalf("ListSnapshots returned error: %v", err)
+		}
+
+		if len(got) != 2 {
+			t.Fatalf("snapshots count mismatch: want=2 got=%d", len(got))
+		}
+
+		if got[0].ID != "new" {
+			t.Errorf("first snapshot mismatch: want=%q got=%q", "new", got[0].ID)
+		}
+
+		if got[1].ID != "old" {
+			t.Errorf("second snapshot mismatch: want=%q got=%q", "old", got[1].ID)
+		}
+	})
+
+	t.Run("returns empty slice for empty snapshots dir", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		snapshotsDir := filepath.Join(tmp, "snapshots")
+		if err := os.MkdirAll(snapshotsDir, 0755); err != nil {
+			t.Fatalf("create snapshots dir: %v", err)
+		}
+
+		got, err := ListSnapshots(snapshotsDir)
+		if err != nil {
+			t.Fatalf("ListSnapshots returned error: %v", err)
+		}
+
+		if len(got) != 0 {
+			t.Errorf("expected empty slice, got=%v", got)
+		}
+	})
+
+	t.Run("returns error for invalid snapshot json", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		snapshotsDir := filepath.Join(tmp, "snapshots")
+		if err := os.MkdirAll(snapshotsDir, 0755); err != nil {
+			t.Fatalf("create snapshots dir: %v", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(snapshotsDir, "broken.json"), []byte(`{broken json`), 0644); err != nil {
+			t.Fatalf("write broken json: %v", err)
+		}
+
+		_, err := ListSnapshots(snapshotsDir)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+}
+
+func writeObject(t *testing.T, objectsDir, hash string, content []byte) {
+	t.Helper()
+
+	objectPath, err := ObjectPath(objectsDir, hash)
+	if err != nil {
+		t.Fatalf("ObjectPath returned error: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(objectPath), 0755); err != nil {
+		t.Fatalf("create object parent dir: %v", err)
+	}
+
+	if err := os.WriteFile(objectPath, content, 0644); err != nil {
+		t.Fatalf("write object: %v", err)
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file %q: %v", path, err)
+	}
+
+	return data
+}
+
+func writeSnapshotJSON(t *testing.T, snapshotsDir, fileName, content string) {
+	t.Helper()
+
+	path := filepath.Join(snapshotsDir, fileName)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write snapshot json %q: %v", fileName, err)
+	}
 }
