@@ -1,3 +1,5 @@
 testdata/
 *.exe
 .minigit/
+minigit
+restored/
