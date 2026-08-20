@@ -27,6 +27,11 @@ type FileChange struct {
 	NewHash string       `json:"new_hash"`
 }
 
+type ScanResult struct {
+	Entry FileEntry
+	Err   error
+}
+
 const (
 	StatusAdded    = "ADDED"
 	StatusDeleted  = "DELETED"

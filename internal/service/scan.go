@@ -84,63 +84,79 @@ func CollectFiles(root string) ([]model.FileEntry, error) {
 }
 
 func CollectFilesWithContext(ctx context.Context, root string) ([]model.FileEntry, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	res := make([]model.FileEntry, 0)
-
+	ctxCancel, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if err := ValidateRoot(root); err != nil {
 		return nil, fmt.Errorf("validate root: %w", err)
 	}
+
+	results := make(chan model.ScanResult)
+	var wg sync.WaitGroup
+
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			return nil
-		}
-
-		if err != nil {
-			return fmt.Errorf("walk %s: %w", path, err)
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(root, path)
-		if err != nil {
+		if err != nil || d.IsDir() {
 			return err
 		}
 
-		info, err := d.Info()
-		if err != nil {
-			return err
+		if ctxCancel.Err() != nil {
+			return ctxCancel.Err()
 		}
 
-		size := info.Size()
-		modTime := info.ModTime()
+		relPath, _ := filepath.Rel(root, path)
+		info, _ := d.Info()
 
-		hash, err := HashFile(path)
-		if err != nil {
-			return fmt.Errorf("error while hashing file: %w", err)
-		}
+		wg.Add(1)
+		go func(p, rp string, s int64, mt time.Time) {
+			defer wg.Done()
 
-		res = append(res, model.FileEntry{Path: relPath, Size: size, ModTime: modTime, Hash: hash})
+			select {
+			case <-ctxCancel.Done():
+				return
+			default:
+			}
 
-		return err
+			hash, err := HashFile(p)
+
+			select {
+			case <-ctxCancel.Done():
+			case results <- model.ScanResult{
+				Entry: model.FileEntry{Path: rp, Size: s, ModTime: mt, Hash: hash},
+				Err:   err,
+			}:
+			}
+		}(path, relPath, info.Size(), info.ModTime())
+
+		return nil
 	})
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var finalEntries []model.FileEntry
+	var firstErr error
+
+	for res := range results {
+		if res.Err != nil && firstErr == nil {
+			firstErr = res.Err
+			cancel()
+
+		}
+		if res.Err == nil && firstErr == nil {
+			finalEntries = append(finalEntries, res.Entry)
+		}
+	}
 
 	if err != nil {
 		return nil, err
 	}
+	if firstErr != nil {
+		return nil, firstErr
+	}
 
-	return res, nil
+	return finalEntries, nil
 }
-
 func Scan(root string) error {
 	info, err := CollectFiles(root)
 	if err != nil {
