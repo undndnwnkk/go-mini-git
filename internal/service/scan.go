@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+type fileJob struct {
+	path    string
+	relPath string
+	size    int64
+	modTime time.Time
+}
+
 func CollectFiles(root string) ([]model.FileEntry, error) {
 	res := make([]model.FileEntry, 0)
 
@@ -90,8 +97,15 @@ func CollectFilesWithContext(ctx context.Context, root string) ([]model.FileEntr
 		return nil, fmt.Errorf("validate root: %w", err)
 	}
 
+	const numWorkers = 4
+	jobs := make(chan fileJob, numWorkers)
 	results := make(chan model.ScanResult)
 	var wg sync.WaitGroup
+
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go collectFilesWorker(ctxCancel, jobs, results, &wg)
+	}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -105,29 +119,19 @@ func CollectFilesWithContext(ctx context.Context, root string) ([]model.FileEntr
 		relPath, _ := filepath.Rel(root, path)
 		info, _ := d.Info()
 
-		wg.Add(1)
-		go func(p, rp string, s int64, mt time.Time) {
-			defer wg.Done()
-
-			select {
-			case <-ctxCancel.Done():
-				return
-			default:
-			}
-
-			hash, err := HashFile(p)
-
-			select {
-			case <-ctxCancel.Done():
-			case results <- model.ScanResult{
-				Entry: model.FileEntry{Path: rp, Size: s, ModTime: mt, Hash: hash},
-				Err:   err,
-			}:
-			}
-		}(path, relPath, info.Size(), info.ModTime())
-
+		select {
+		case <-ctxCancel.Done():
+			return ctxCancel.Err()
+		case jobs <- fileJob{
+			path:    path,
+			relPath: relPath,
+			size:    info.Size(),
+			modTime: info.ModTime(),
+		}:
+		}
 		return nil
 	})
+	close(jobs)
 
 	go func() {
 		wg.Wait()
@@ -151,12 +155,29 @@ func CollectFilesWithContext(ctx context.Context, root string) ([]model.FileEntr
 	if err != nil {
 		return nil, err
 	}
+
 	if firstErr != nil {
 		return nil, firstErr
 	}
 
 	return finalEntries, nil
 }
+
+func collectFilesWorker(ctxCancel context.Context, jobs <-chan fileJob, results chan<- model.ScanResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for cur := range jobs {
+		hash, err := HashFile(cur.path)
+		select {
+		case <-ctxCancel.Done():
+		case results <- model.ScanResult{
+			Entry: model.FileEntry{Path: cur.relPath, Size: cur.size, ModTime: cur.modTime, Hash: hash},
+			Err:   err,
+		}:
+		}
+	}
+}
+
 func Scan(root string) error {
 	info, err := CollectFiles(root)
 	if err != nil {
