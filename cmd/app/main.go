@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/undndnwnkk/go-mini-git/internal/service"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -132,7 +135,55 @@ func main() {
 		}
 
 		fmt.Println("snapshot restored successfully")
+
+	case "serve":
+		mux := http.NewServeMux()
+		mux.HandleFunc("/snapshots", getSnapshotsHandler)
+
+		srv := &http.Server{
+			Addr:    ":8080",
+			Handler: mux,
+		}
+
+		go func() {
+			fmt.Println("Starting server on :8080")
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				fmt.Printf("Listen: %s\n", err)
+			}
+		}()
+
+		<-ctx.Done()
+		fmt.Println("Shutting down server...")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			fmt.Printf("Server forced to shutdown: %v\n", err)
+		}
+		fmt.Println("Server exited")
 	default:
 		fmt.Println("unknown command: " + args[0])
 	}
+}
+
+func getSnapshotsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	data, err := service.ListSnapshots(".minigit/snapshots")
+	if err != nil {
+		http.Error(w, "error while list snapshots", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		http.Error(w, "error while encoding", http.StatusInternalServerError)
+		return
+	}
+
 }
