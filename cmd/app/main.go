@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/undndnwnkk/go-mini-git/internal/api"
 	"github.com/undndnwnkk/go-mini-git/internal/service"
 	"net/http"
 	"os"
@@ -140,9 +141,13 @@ func main() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/snapshots", getSnapshotsHandler)
 
+		var handler http.Handler = mux
+		handler = api.RecoveryMiddleware(handler)
+		handler = api.LoggingMiddleware(handler)
+
 		srv := &http.Server{
 			Addr:    ":8080",
-			Handler: mux,
+			Handler: handler,
 		}
 
 		go func() {
