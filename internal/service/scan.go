@@ -6,6 +6,8 @@ import (
 	"github.com/undndnwnkk/go-mini-git/internal/model"
 	"io/fs"
 	"path/filepath"
+	"sync"
+	"time"
 )
 
 func CollectFiles(root string) ([]model.FileEntry, error) {
@@ -14,6 +16,11 @@ func CollectFiles(root string) ([]model.FileEntry, error) {
 	if err := ValidateRoot(root); err != nil {
 		return nil, fmt.Errorf("validate root: %w", err)
 	}
+
+	var wg sync.WaitGroup
+	var mux sync.Mutex
+	var firstErr error
+
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk %s: %w", path, err)
@@ -36,18 +43,41 @@ func CollectFiles(root string) ([]model.FileEntry, error) {
 		size := info.Size()
 		modTime := info.ModTime()
 
-		hash, err := HashFile(path)
-		if err != nil {
-			return fmt.Errorf("error while hashing file: %w", err)
-		}
+		wg.Add(1)
+		go func(path, relPath string, size int64, modTime time.Time) {
+			defer wg.Done()
 
-		res = append(res, model.FileEntry{Path: relPath, Size: size, ModTime: modTime, Hash: hash})
+			hash, err := HashFile(path)
+			if err != nil {
+				mux.Lock()
+				if firstErr == nil {
+					firstErr = fmt.Errorf("hash %s: %w", path, err)
+				}
+				mux.Unlock()
+				return
+			}
+
+			mux.Lock()
+			res = append(res, model.FileEntry{
+				Path:    relPath,
+				Size:    size,
+				ModTime: modTime,
+				Hash:    hash,
+			})
+			mux.Unlock()
+		}(path, relPath, size, modTime)
 
 		return nil
 	})
 
+	wg.Wait()
+
 	if err != nil {
 		return nil, err
+	}
+
+	if firstErr != nil {
+		return nil, firstErr
 	}
 
 	return res, nil
