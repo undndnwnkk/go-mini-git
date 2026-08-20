@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/undndnwnkk/go-mini-git/internal/api"
+	"github.com/undndnwnkk/go-mini-git/internal/config"
 	"github.com/undndnwnkk/go-mini-git/internal/service"
 	"net/http"
 	"os"
@@ -18,6 +19,11 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+
+	cfg := config.Load()
+
+	svc := service.NewVCSService(cfg)
+
 	args := os.Args[1:]
 	if len(args) == 0 {
 		fmt.Println("not enough arguments")
@@ -139,34 +145,50 @@ func main() {
 
 	case "serve":
 		mux := http.NewServeMux()
-		mux.HandleFunc("/snapshots", getSnapshotsHandler)
+
+		mux.HandleFunc("/snapshots", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			data, err := svc.ListSnapshots()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+		})
 
 		var handler http.Handler = mux
 		handler = api.RecoveryMiddleware(handler)
 		handler = api.LoggingMiddleware(handler)
 
 		srv := &http.Server{
-			Addr:    ":8080",
+			Addr:    cfg.ServerPort,
 			Handler: handler,
 		}
 
 		go func() {
-			fmt.Println("Starting server on :8080")
+			fmt.Printf("MiniGit server started on %s\n", cfg.ServerPort)
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				fmt.Printf("Listen: %s\n", err)
+				fmt.Printf("critical server error: %v\n", err)
+				stop()
 			}
 		}()
 
 		<-ctx.Done()
-		fmt.Println("Shutting down server...")
+		fmt.Println("\nGracefully shutting down...")
 
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelShutdown()
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			fmt.Printf("Server forced to shutdown: %v\n", err)
+			fmt.Printf("server forced to shutdown: %v\n", err)
 		}
-		fmt.Println("Server exited")
+		fmt.Println("Server stopped")
 	default:
 		fmt.Println("unknown command: " + args[0])
 	}
