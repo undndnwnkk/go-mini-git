@@ -27,10 +27,15 @@ func BuildSnapshot(root string) (model.Snapshot, error) {
 }
 
 func BuildSnapshotWithContext(ctx context.Context, root string) (model.Snapshot, error) {
+	return BuildSnapshotWithContextAndOptions(ctx, root, CollectOptions{})
+}
+
+func BuildSnapshotWithContextAndOptions(ctx context.Context, root string, opts CollectOptions) (model.Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return model.Snapshot{}, err
 	}
-	files, err := CollectFilesWithContext(ctx, root)
+
+	files, err := CollectFilesWithContextAndOptions(ctx, root, opts)
 	if err != nil {
 		return model.Snapshot{}, err
 	}

@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/undndnwnkk/go-mini-git/internal/model"
 	"io/fs"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sync"
 	"time"
 )
@@ -15,6 +18,18 @@ type fileJob struct {
 	relPath string
 	size    int64
 	modTime time.Time
+}
+
+type CollectOptions struct {
+	Workers int
+}
+
+func (o CollectOptions) workerCount() int {
+	if o.Workers <= 0 {
+		return max(1, runtime.NumCPU())
+	}
+
+	return o.Workers
 }
 
 func CollectFiles(root string) ([]model.FileEntry, error) {
@@ -91,17 +106,26 @@ func CollectFiles(root string) ([]model.FileEntry, error) {
 }
 
 func CollectFilesWithContext(ctx context.Context, root string) ([]model.FileEntry, error) {
+	return CollectFilesWithContextAndOptions(ctx, root, CollectOptions{})
+}
+
+func CollectFilesWithContextAndOptions(ctx context.Context, root string, opts CollectOptions) ([]model.FileEntry, error) {
 	ctxCancel, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if err := ValidateRoot(root); err != nil {
 		return nil, fmt.Errorf("validate root: %w", err)
 	}
 
-	const numWorkers = 4
+	numWorkers := opts.workerCount()
 	jobs := make(chan fileJob, numWorkers)
-	results := make(chan model.ScanResult)
+	results := make(chan model.ScanResult, numWorkers)
+
 	var stats model.ScanStats
-	defer fmt.Printf("Processed %d files (%d bytes), %d errors", stats.TotalFiles, stats.TotalBytes, len(stats.Errors))
 
 	var wg sync.WaitGroup
 
@@ -110,31 +134,48 @@ func CollectFilesWithContext(ctx context.Context, root string) ([]model.FileEntr
 		go collectFilesWorker(ctxCancel, jobs, results, &stats, &wg)
 	}
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
+	walkErrCh := make(chan error, 1)
+	go func() {
+		defer close(jobs)
 
-		if ctxCancel.Err() != nil {
-			return ctxCancel.Err()
-		}
+		walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
 
-		relPath, _ := filepath.Rel(root, path)
-		info, _ := d.Info()
+			if d.IsDir() {
+				return nil
+			}
 
-		select {
-		case <-ctxCancel.Done():
-			return ctxCancel.Err()
-		case jobs <- fileJob{
-			path:    path,
-			relPath: relPath,
-			size:    info.Size(),
-			modTime: info.ModTime(),
-		}:
-		}
-		return nil
-	})
-	close(jobs)
+			if ctxCancel.Err() != nil {
+				return ctxCancel.Err()
+			}
+
+			relPath, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+
+			select {
+			case <-ctxCancel.Done():
+				return ctxCancel.Err()
+			case jobs <- fileJob{
+				path:    path,
+				relPath: relPath,
+				size:    info.Size(),
+				modTime: info.ModTime(),
+			}:
+				return nil
+			}
+		})
+
+		walkErrCh <- walkErr
+	}()
 
 	go func() {
 		wg.Wait()
@@ -148,20 +189,40 @@ func CollectFilesWithContext(ctx context.Context, root string) ([]model.FileEntr
 		if res.Err != nil && firstErr == nil {
 			firstErr = res.Err
 			cancel()
-
 		}
 		if res.Err == nil && firstErr == nil {
 			finalEntries = append(finalEntries, res.Entry)
 		}
 	}
 
-	if err != nil {
-		return nil, err
+	slices.SortFunc(finalEntries, func(a, b model.FileEntry) int {
+		if filepath.Clean(a.Path) < filepath.Clean(b.Path) {
+			return -1
+		}
+		if filepath.Clean(a.Path) > filepath.Clean(b.Path) {
+			return 1
+		}
+
+		return 0
+	})
+
+	walkErr := <-walkErrCh
+	if walkErr != nil && firstErr == nil {
+		firstErr = walkErr
 	}
 
 	if firstErr != nil {
 		return nil, firstErr
 	}
+
+	if err := ctx.Err(); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("context error: %w", err)
+	}
+
+	fmt.Printf("Processed %d files (%d bytes), %d errors\n", stats.TotalFiles, stats.TotalBytes, len(stats.Errors))
 
 	return finalEntries, nil
 }
@@ -173,6 +234,7 @@ func collectFilesWorker(ctxCancel context.Context, jobs <-chan fileJob, results 
 		hash, err := HashFile(cur.path)
 		select {
 		case <-ctxCancel.Done():
+			return
 		case results <- model.ScanResult{
 			Entry: model.FileEntry{Path: cur.relPath, Size: cur.size, ModTime: cur.modTime, Hash: hash},
 			Err:   err,
@@ -184,6 +246,14 @@ func collectFilesWorker(ctxCancel context.Context, jobs <-chan fileJob, results 
 			}
 		}
 	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+
+	return b
 }
 
 func Scan(root string) error {

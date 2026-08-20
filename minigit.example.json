@@ -1,0 +1,11 @@
+{
+  "storage_path": ".minigit",
+  "server_port": ":8080",
+  "worker_count": 4,
+  "shutdown_timeout": "5s",
+  "http_read_timeout": "10s",
+  "http_write_timeout": "15s",
+  "log_level": "info",
+  "basic_auth_user": "",
+  "basic_auth_password": ""
+}
