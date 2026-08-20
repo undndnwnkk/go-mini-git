@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/undndnwnkk/go-mini-git/internal/service"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
 	args := os.Args[1:]
 	if len(args) == 0 {
 		fmt.Println("not enough arguments")
@@ -44,9 +50,13 @@ func main() {
 			return
 		}
 
-		data, err := service.BuildSnapshot(args[1])
+		data, err := service.BuildSnapshotWithContext(ctx, args[1])
 		if err != nil {
-			fmt.Printf("error while building snapshot: %v\n", err)
+			if errors.Is(err, context.Canceled) {
+				fmt.Println("\nInterrupted, cleaning up...")
+			} else {
+				fmt.Printf("error while building snapshot: %v\n", err)
+			}
 			return
 		}
 
