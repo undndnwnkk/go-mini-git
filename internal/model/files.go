@@ -1,6 +1,7 @@
 package model
 
 import (
+	"sync"
 	"time"
 )
 
@@ -30,6 +31,29 @@ type FileChange struct {
 type ScanResult struct {
 	Entry FileEntry
 	Err   error
+}
+
+type ScanStats struct {
+	mux        sync.Mutex
+	TotalFiles int
+	TotalBytes int64
+	Errors     []string
+}
+
+func (s *ScanStats) AddFile(size int64) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	s.TotalFiles++
+	s.TotalBytes += size
+}
+
+func (s *ScanStats) AddErr(path string) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	s.TotalFiles++
+	s.Errors = append(s.Errors, path)
 }
 
 const (

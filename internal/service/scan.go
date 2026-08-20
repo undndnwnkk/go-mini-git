@@ -100,11 +100,14 @@ func CollectFilesWithContext(ctx context.Context, root string) ([]model.FileEntr
 	const numWorkers = 4
 	jobs := make(chan fileJob, numWorkers)
 	results := make(chan model.ScanResult)
+	var stats model.ScanStats
+	defer fmt.Printf("Processed %d files (%d bytes), %d errors", stats.TotalFiles, stats.TotalBytes, len(stats.Errors))
+
 	var wg sync.WaitGroup
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go collectFilesWorker(ctxCancel, jobs, results, &wg)
+		go collectFilesWorker(ctxCancel, jobs, results, &stats, &wg)
 	}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -163,7 +166,7 @@ func CollectFilesWithContext(ctx context.Context, root string) ([]model.FileEntr
 	return finalEntries, nil
 }
 
-func collectFilesWorker(ctxCancel context.Context, jobs <-chan fileJob, results chan<- model.ScanResult, wg *sync.WaitGroup) {
+func collectFilesWorker(ctxCancel context.Context, jobs <-chan fileJob, results chan<- model.ScanResult, stats *model.ScanStats, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for cur := range jobs {
@@ -174,6 +177,11 @@ func collectFilesWorker(ctxCancel context.Context, jobs <-chan fileJob, results 
 			Entry: model.FileEntry{Path: cur.relPath, Size: cur.size, ModTime: cur.modTime, Hash: hash},
 			Err:   err,
 		}:
+			if err == nil {
+				stats.AddFile(cur.size)
+			} else {
+				stats.AddErr(cur.relPath)
+			}
 		}
 	}
 }
